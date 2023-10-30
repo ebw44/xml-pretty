@@ -91,11 +91,13 @@ fn main() -> anyhow::Result<()> {
             args.output_path.clone()
         };
 
+        let text_with_crlf = text.replace("\n", "\r\n");
+
         if let Some(path) = output_path {
-            write(&path, text)
+            write(&path, text_with_crlf)
                 .with_context(|| format!("Failed to write to '{}'", path.display()))?;
         } else {
-            println!("{}", text);
+            println!("{}", text_with_crlf);
         }
     }
 
