@@ -1,6 +1,5 @@
 use std::{
-    fs::{write, File},
-    io::StdinLock,
+    fs::{self, write, File},
     path::{Path, PathBuf},
 };
 
@@ -8,12 +7,17 @@ use anyhow::Context;
 use gumdrop::Options;
 use xmlem::{display, Document};
 
+// #[cfg(windows)]
+// const LINE_ENDING: &'static str = "\r\n";
+// #[cfg(not(windows))]
+// const LINE_ENDING: &'static str = "\n";
+
 #[derive(Debug, Options)]
 struct Args {
     #[options(help = "display help information")]
     help: bool,
 
-    #[options(free, help = "path to XML document")]
+    #[options(free, help = "path to XML document or folder containing XML documents")]
     xml_document_path: Option<PathBuf>,
 
     #[options(help = "output to file")]
@@ -62,45 +66,37 @@ fn main() -> anyhow::Result<()> {
         None
     };
 
-    let output_path = if args.is_replace {
-        if let Some(input_path) = input_path.as_ref() {
-            Some(input_path.clone())
-        } else {
-            eprintln!("ERROR: cannot replace 'file' when provided stdin data.");
-            return Ok(());
+    let input_list = match find_xml_files(&input_path) {
+        Ok(xml_files) => xml_files,
+        Err(err) => {
+            eprintln!("Error: {}", err);
+            Vec::new() // Return an empty Vec in case of an error
         }
-    } else {
-        args.output_path
     };
 
-    let text = if let Some(input_path) = input_path {
-        prettify_file(
-            &input_path,
+    for file_path in input_list {
+        let text = prettify_file(
+            &file_path,
             args.indent,
             args.end_pad,
             args.max_line_length,
             args.uses_hex_entities,
             !args.is_no_text_indent,
         )
-        .with_context(|| format!("Failed to prettify '{}'", input_path.display()))?
-    } else {
-        let stdin = std::io::stdin();
-        let stdin = stdin.lock();
-        prettify_stdin(
-            stdin,
-            args.indent,
-            args.end_pad,
-            args.max_line_length,
-            args.uses_hex_entities,
-            !args.is_no_text_indent,
-        )
-        .context("Failed to prettify from stdin")?
-    };
+        .with_context(|| format!("Failed to prettify '{}'", file_path.display()))?;
 
-    if let Some(path) = output_path {
-        write(&path, text).with_context(|| format!("Failed to write to '{}'", path.display()))?;
-    } else {
-        println!("{}", text);
+        let output_path = if args.is_replace {
+            Some(file_path.clone())
+        } else {
+            args.output_path.clone()
+        };
+
+        if let Some(path) = output_path {
+            write(&path, text)
+                .with_context(|| format!("Failed to write to '{}'", path.display()))?;
+        } else {
+            println!("{}", text);
+        }
     }
 
     Ok(())
@@ -116,25 +112,6 @@ fn prettify_file(
 ) -> anyhow::Result<String> {
     let file = File::open(path)?;
     let doc = Document::from_file(file)?;
-    Ok(prettify(
-        doc,
-        indent,
-        end_pad,
-        max_line_length,
-        uses_hex_entities,
-        indent_text_nodes,
-    ))
-}
-
-fn prettify_stdin(
-    stdin: StdinLock,
-    indent: Option<usize>,
-    end_pad: Option<usize>,
-    max_line_length: Option<usize>,
-    uses_hex_entities: bool,
-    indent_text_nodes: bool,
-) -> anyhow::Result<String> {
-    let doc = Document::from_reader(stdin)?;
     Ok(prettify(
         doc,
         indent,
@@ -165,4 +142,41 @@ fn prettify(
         },
         indent_text_nodes,
     })
+}
+
+fn find_xml_files(input_path: &Option<PathBuf>) -> Result<Vec<PathBuf>, std::io::Error> {
+    fn find_xml_files_recursive(directory: &Path) -> Result<Vec<PathBuf>, std::io::Error> {
+        let mut xml_files = Vec::new();
+
+        for entry in fs::read_dir(directory)? {
+            let entry = entry?;
+            let path = entry.path();
+
+            if path.is_file() && path.extension() == Some("xml".as_ref()) {
+                xml_files.push(path);
+            } else if path.is_dir() {
+                xml_files.extend(find_xml_files_recursive(&path)?);
+            }
+        }
+
+        Ok(xml_files)
+    }
+
+    if let Some(path) = input_path {
+        if path.is_dir() {
+            find_xml_files_recursive(&path)
+        } else if path.is_file() && path.extension() == Some("xml".as_ref()) {
+            Ok(vec![path.clone()])
+        } else {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Invalid input path",
+            ))
+        }
+    } else {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "No input path provided",
+        ))
+    }
 }
