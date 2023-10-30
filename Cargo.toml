@@ -14,3 +14,6 @@ anyhow = "1.0.57"
 atty = "0.2.14"
 gumdrop = "0.8.1"
 xmlem = "0.2.0"
+
+[build]
+target = ["x86_64-pc-windows-msvc", "i686-pc-windows-msvc"]

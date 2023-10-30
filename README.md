@@ -16,6 +16,12 @@ Make your XML pretty. A frontend to the [`xmlem`](https://github.com/bbqsrc/xmle
 cargo install --git https://github.com/bbqsrc/xml-pretty
 ```
 
+## Cross compilation
+
+```
+cargo build --target=i686-pc-windows-msvc
+```
+
 ## Usage
 
 Use `xml-pretty --help` to see the flags.
